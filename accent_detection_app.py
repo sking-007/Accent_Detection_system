@@ -3,7 +3,7 @@ import tempfile, requests, os, glob, subprocess
 import whisper
 import librosa, torch
 import yt_dlp
-from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
+from transformers import AutoProcessor, AutoModelForAudioClassification
 
 # Load Whisper
 @st.cache_resource
@@ -15,8 +15,8 @@ def load_whisper_model():
 def load_accent_model():
     model_id = "dima806/english_accents_classification"
     model = AutoModelForAudioClassification.from_pretrained(model_id)
-    extractor = AutoFeatureExtractor.from_pretrained(model_id)
-    return model, extractor
+    processor = AutoProcessor.from_pretrained(model_id)
+    return model, processor
 
 # Download from MP4 URL
 def download_video(url):
@@ -47,7 +47,7 @@ def download_youtube_audio(youtube_url):
         st.error(f"❌ yt-dlp error: {e}")
         return None
 
-# Extract audio using ffmpeg (replaces moviepy)
+# Extract audio using ffmpeg
 def extract_audio(input_path):
     output_path = tempfile.NamedTemporaryFile(delete=False, suffix=".wav").name
     try:
@@ -63,8 +63,8 @@ def extract_audio(input_path):
 # Accent Classification
 def classify_accent(audio_path):
     waveform, sr = librosa.load(audio_path, sr=16000)
-    model, extractor = load_accent_model()
-    inputs = extractor(waveform, sampling_rate=16000, return_tensors="pt")
+    model, processor = load_accent_model()
+    inputs = processor(waveform, sampling_rate=16000, return_tensors="pt")
     with torch.no_grad():
         logits = model(**inputs).logits
         pid = logits.argmax().item()
