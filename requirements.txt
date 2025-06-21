@@ -9,3 +9,4 @@ librosa==0.10.1
 soundfile
 transformers==4.38.1
 imageio-ffmpeg
+numpy<2.0
