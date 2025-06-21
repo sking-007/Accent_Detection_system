@@ -1,11 +1,8 @@
 streamlit
-moviepy==1.0.3
-pytube==15.0.0
 yt-dlp==2025.6.9
-git+https://github.com/openai/whisper.git
-torch==2.7.1
-torchaudio==2.7.1
+torch==2.2.2
+torchaudio==2.2.2
 librosa==0.11.0
 soundfile
-transformers==4.52.4
-imageio-ffmpeg
+transformers==4.37.2
+git+https://github.com/openai/whisper.git
