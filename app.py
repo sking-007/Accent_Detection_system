@@ -77,7 +77,7 @@ def classify_accent(audio_path):
     model, processor = load_accent_model()
     inputs = processor(waveform, sampling_rate=16000, return_tensors="pt")
 
-    if inputs['input_values'].shape[1] == 0:
+    if "input_values" not in inputs or inputs['input_values'].shape[1] == 0:
         raise ValueError("Processed audio has no content.")
 
     with torch.no_grad():
@@ -108,6 +108,7 @@ if st.button("Analyze"):
         with st.spinner("Processing..."):
             video_path, audio_path = None, None
             try:
+                # Determine video source
                 if uploaded:
                     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
                     tmp.write(uploaded.read())
@@ -117,16 +118,19 @@ if st.button("Analyze"):
                 else:
                     video_path = download_video(url_mp4)
 
+                # Extract audio
                 audio_path = extract_audio(video_path)
+                if not audio_path or not os.path.exists(audio_path):
+                    raise RuntimeError("Audio file could not be created or found.")
                 st.audio(audio_path)
 
-                # Transcript
+                # Transcribe
                 whisper_model = load_whisper_model()
                 result = whisper_model.transcribe(audio_path)
                 st.subheader("📝 Transcript")
                 st.write(result["text"])
 
-                # Accent
+                # Accent detection
                 accent, score, explanation, duration = classify_accent(audio_path)
                 st.subheader("🧠 Accent Analysis")
                 st.write(f"**Detected Accent:** {accent}")
@@ -136,7 +140,9 @@ if st.button("Analyze"):
 
             except Exception as e:
                 st.error(f"❌ Something went wrong: {e}")
+
             finally:
+                # Safe cleanup
                 for f in [video_path, audio_path]:
-                    if f and os.path.exists(f):
+                    if f and isinstance(f, str) and os.path.exists(f):
                         os.remove(f)
