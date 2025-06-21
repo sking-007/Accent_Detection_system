@@ -2,7 +2,7 @@ streamlit
 moviepy==1.0.3
 pytube==15.0.0
 yt-dlp==2025.6.9
-whisper
+git+https://github.com/openai/whisper.git
 torch==2.7.1
 torchaudio==2.7.1
 librosa==0.11.0
