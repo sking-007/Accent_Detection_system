@@ -3,9 +3,9 @@ import tempfile, requests, os, glob, subprocess
 import whisper
 import librosa, torch
 import yt_dlp
-from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
+from transformers import AutoProcessor, AutoModelForAudioClassification
 
-# Load Whisper
+# Load Whisper model
 @st.cache_resource
 def load_whisper_model():
     return whisper.load_model("base")
@@ -15,19 +15,22 @@ def load_whisper_model():
 def load_accent_model():
     model_id = "dima806/english_accents_classification"
     model = AutoModelForAudioClassification.from_pretrained(model_id)
-    extractor = AutoFeatureExtractor.from_pretrained(model_id)
-    return model, extractor
+    processor = AutoProcessor.from_pretrained(model_id)
+    return model, processor
 
-# Download from MP4 URL
+# Download from direct video link
 def download_video(url):
-    response = requests.get(url, stream=True)
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-    with open(tmp.name, "wb") as f:
-        for chunk in response.iter_content(8192):
-            f.write(chunk)
-    return tmp.name
+    try:
+        response = requests.get(url, stream=True)
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        with open(tmp.name, "wb") as f:
+            for chunk in response.iter_content(8192):
+                f.write(chunk)
+        return tmp.name
+    except Exception as e:
+        raise RuntimeError(f"Download failed: {e}")
 
-# Download YouTube audio
+# Download from YouTube
 def download_youtube_audio(youtube_url):
     tmp_dir = tempfile.mkdtemp()
     ydl_opts = {
@@ -44,27 +47,39 @@ def download_youtube_audio(youtube_url):
             raise FileNotFoundError("Audio download failed.")
         return files[0]
     except Exception as e:
-        st.error(f"❌ yt-dlp error: {e}")
-        return None
+        raise RuntimeError(f"YouTube download failed: {e}")
 
-# Extract audio using ffmpeg (replaces moviepy)
+# Extract audio via ffmpeg
 def extract_audio(input_path):
     output_path = tempfile.NamedTemporaryFile(delete=False, suffix=".wav").name
     try:
-        command = [
+        subprocess.run([
             "ffmpeg", "-i", input_path,
             "-ar", "16000", "-ac", "1", "-vn", "-y", output_path
-        ]
-        subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        return output_path
-    except subprocess.CalledProcessError:
-        raise RuntimeError("Audio extraction failed via ffmpeg.")
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
-# Accent Classification
+        if os.path.getsize(output_path) == 0:
+            raise ValueError("Audio extraction output is empty.")
+        return output_path
+    except Exception as e:
+        raise RuntimeError(f"Audio extraction failed: {e}")
+
+# Accent classification
 def classify_accent(audio_path):
     waveform, sr = librosa.load(audio_path, sr=16000)
-    model, extractor = load_accent_model()
-    inputs = extractor(waveform, sampling_rate=16000, return_tensors="pt")
+    if waveform.size == 0:
+        raise ValueError("Audio file is empty or unreadable.")
+
+    duration = librosa.get_duration(y=waveform, sr=sr)
+    if duration < 1.0:
+        raise ValueError("Audio is too short for accent classification.")
+
+    model, processor = load_accent_model()
+    inputs = processor(waveform, sampling_rate=16000, return_tensors="pt")
+
+    if inputs['input_values'].shape[1] == 0:
+        raise ValueError("Processed audio has no content.")
+
     with torch.no_grad():
         logits = model(**inputs).logits
         pid = logits.argmax().item()
@@ -77,20 +92,20 @@ def classify_accent(audio_path):
     }.get(label, label.capitalize())
 
     explanation = f"Accent classified as **{readable}** with **{conf * 100:.2f}%** confidence."
-    return readable, round(conf * 100, 2), explanation
+    return readable, round(conf * 100, 2), explanation, duration
 
-# Streamlit UI
+# ───────────────────── Streamlit UI ─────────────────────
 st.title("🎙️ English Accent Detection Tool")
 
-uploaded = st.file_uploader("📁 Upload video file", type=["mp4", "mov", "webm"])
-url_mp4 = st.text_input("🔗 Public MP4 Video URL")
-url_yt = st.text_input("▶ YouTube Video URL")
+uploaded = st.file_uploader("📁 Upload a video", type=["mp4", "mov", "webm"])
+url_mp4 = st.text_input("🔗 Public MP4 URL")
+url_yt = st.text_input("▶ YouTube URL")
 
 if st.button("Analyze"):
     if not uploaded and not url_mp4 and not url_yt:
-        st.warning("Please upload a video or provide a video link.")
+        st.warning("Please upload a video or provide a URL.")
     else:
-        with st.spinner("Processing audio and analyzing accent..."):
+        with st.spinner("Processing..."):
             video_path, audio_path = None, None
             try:
                 if uploaded:
@@ -99,25 +114,24 @@ if st.button("Analyze"):
                     video_path = tmp.name
                 elif url_yt:
                     video_path = download_youtube_audio(url_yt)
-                    if not video_path:
-                        st.stop()
                 else:
                     video_path = download_video(url_mp4)
 
                 audio_path = extract_audio(video_path)
                 st.audio(audio_path)
 
+                # Transcript
                 whisper_model = load_whisper_model()
                 result = whisper_model.transcribe(audio_path)
-
                 st.subheader("📝 Transcript")
                 st.write(result["text"])
 
-                accent, score, explanation = classify_accent(audio_path)
-
+                # Accent
+                accent, score, explanation, duration = classify_accent(audio_path)
                 st.subheader("🧠 Accent Analysis")
                 st.write(f"**Detected Accent:** {accent}")
                 st.write(f"**Confidence Score:** {score}%")
+                st.write(f"**Audio Duration:** {duration:.2f} seconds")
                 st.write(explanation)
 
             except Exception as e:
