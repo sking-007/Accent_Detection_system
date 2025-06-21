@@ -7,6 +7,6 @@ torch==2.1.0
 torchaudio==2.1.0
 librosa==0.10.1
 soundfile
-transformers==4.38.1
+transformers>=4.35.0,<5
 imageio-ffmpeg
 numpy<2.0
